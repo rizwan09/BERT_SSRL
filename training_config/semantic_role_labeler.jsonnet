@@ -2,16 +2,16 @@
 //   He, Luheng et al. “Deep Semantic Role Labeling: What Works and What's Next.” ACL (2017).
 {
   "dataset_reader":{"type":"srl"},
-  "train_data_path": std.extVar("SRL_TRAIN_DATA_PATH"),
-  "validation_data_path": std.extVar("SRL_VALIDATION_DATA_PATH"),
+  "train_data_path": "/home/rizwan/SBCR/data/conll12/conll-formatted-ontonotes-5.0/data/train/data/english/",
+  "validation_data_path": "/home/rizwan/SBCR/data/conll12/conll-formatted-ontonotes-5.0/data/development/data/english/",
   "model": {
-    "type": "srl",
+    "type": "srl_bert",
     "text_field_embedder": {
       "token_embedders": {
         "tokens": {
             "type": "embedding",
             "embedding_dim": 100,
-            "pretrained_file": "https://allennlp.s3.amazonaws.com/datasets/glove/glove.6B.100d.txt.gz",
+            "pretrained_file": "/home/rizwan/.allennlp/cache/glove.6B.100d.txt.gz",
             "trainable": true
         }
       }
@@ -45,7 +45,7 @@
     "grad_clipping": 1.0,
     "patience": 20,
     "validation_metric": "+f1-measure-overall",
-    "cuda_device": 0,
+    "cuda_device": [0,1,2,3],
     "optimizer": {
       "type": "adadelta",
       "rho": 0.95
