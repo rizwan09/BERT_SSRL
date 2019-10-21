@@ -13,7 +13,17 @@ from allennlp.nn import InitializerApplicator, RegularizerApplicator
 from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.nn.util import get_lengths_from_binary_sequence_mask, viterbi_decode
 from allennlp.training.metrics.srl_eval_scorer import SrlEvalScorer, DEFAULT_SRL_EVAL_PATH
+from allennlp.models.srl_util import traverse_tree_no_leaf, traverse_tree
+from allennlp.predictors.predictor import Predictor
+from nltk import Tree
+import sys, os
+sys.path.append(os.path.abspath(os.path.join('..', 'fairseq')))
+from fairseq.models.roberta import RobertaModel
+from allennlp.modules.matrix_attention import DotProductMatrixAttention
+import torch.nn.functional as F
 
+
+import pdb
 
 @Model.register("srl_sbert")
 class SrlSBert(Model):
@@ -48,6 +58,7 @@ class SrlSBert(Model):
         label_smoothing: float = None,
         ignore_span_metric: bool = False,
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
+        parser_path: str = "/home/rizwan/.allennlp/cache/elmo-allennlp_constituency_parser"
     ) -> None:
         super().__init__(vocab, regularizer)
 
@@ -63,11 +74,20 @@ class SrlSBert(Model):
             self.span_metric = SrlEvalScorer(srl_eval_path, ignore_classes=["V"])
         else:
             self.span_metric = None
-        self.tag_projection_layer = Linear(self.bert_model.config.hidden_size, self.num_classes)
+        self.tag_projection_layer = Linear(2*self.bert_model.config.hidden_size, self.num_classes)
 
         self.embedding_dropout = Dropout(p=embedding_dropout)
         self._label_smoothing = label_smoothing
         self.ignore_span_metric = ignore_span_metric
+
+        device = 0 if torch.cuda.is_available() else -1
+        self.parser = Predictor.from_path(parser_path, cuda_device=device)
+
+        self.syntax_roberta = RobertaModel.from_pretrained('../fairseq/checkpoints_768', 'checkpoint_best.pt')
+        self.syntax_roberta.eval()
+
+        self.matrix_attention = DotProductMatrixAttention()
+
         initializer(self)
 
     def forward(  # type: ignore
@@ -119,7 +139,21 @@ class SrlSBert(Model):
 
         embedded_text_input = self.embedding_dropout(bert_embeddings)
         batch_size, sequence_length, _ = embedded_text_input.size()
-        logits = self.tag_projection_layer(embedded_text_input)
+
+        raw_parse_trees = [tree["trees"] for tree in
+                  self.parser.predict_batch_json([{"sentence": ' '.join(x["words"])} for x in metadata])]
+        syntax_embeddings_list = []
+        for parse_tree in raw_parse_trees:
+            doc = self.syntax_roberta.extract_features_aligned_to_words(' '.join(
+                str(Tree.fromstring(parse_tree, read_leaf=lambda x: '')).replace('(', '').replace(')', '').split()))
+            syntax_embeddings_list.append(torch.stack([tok.vector for tok in doc[1:-1]]))
+        syntax_embeddings = torch.nn.utils.rnn.pad_sequence(syntax_embeddings_list, batch_first=True, padding_value=0)
+
+        syntax_attended_semantic_attn_wights = F.softmax(self.matrix_attention(bert_embeddings, syntax_embeddings), dim=-1)
+        syntax_attended_semantic_embedding = torch.bmm(syntax_attended_semantic_attn_wights, syntax_embeddings)
+
+        encoded_text_input = torch.cat((embedded_text_input, syntax_attended_semantic_embedding), -1)
+        logits = self.tag_projection_layer(encoded_text_input)
 
         reshaped_log_probs = logits.view(-1, self.num_classes)
         class_probabilities = F.softmax(reshaped_log_probs, dim=-1).view(

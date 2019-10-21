@@ -18,7 +18,7 @@ model_file = '../.allennlp/cache/bert-base-srl-2019.06.17.tar.gz'
 output_path += 'SRL_BERT_baseline'
 # model_file = output_path + '/model.tar.gz'
 #
-devices = '1,3,4,5'
+devices = '5,6'
 
 run_command = 'CUDA_VISIBLE_DEVICES=' + devices + ' python -m allennlp.run ' + option + ' '
 

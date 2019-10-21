@@ -1,5 +1,5 @@
 from typing import List, TextIO, Optional
-
+import spacy, nltk
 
 def write_bio_formatted_tags_to_file(
     prediction_file: TextIO,
@@ -138,3 +138,29 @@ def convert_bio_tags_to_conll_format(labels: List[str]):
             new_label = new_label + ")"
         conll_labels.append(new_label)
     return conll_labels
+
+
+def traverse_tree_no_leaf(tree):
+    st = ''
+    if len(tree)==1:
+        st = tree.label()
+    elif len(tree)>1:
+        st += traverse_tree_no_leaf(tree[0])
+        st += ' ' +tree.label()+ ' '
+        for subtree in tree[1:]:
+            st += traverse_tree_no_leaf(subtree) + ' '
+    return st.strip()
+
+def traverse_tree(tree):
+    st = ''
+    if len(tree)==1:
+    	st = ' '.join(tree.leaves())+' '+(tree.label())#str(tree).replace('(', '').replace(')','')
+    elif len(tree)>1:
+    	st += traverse_tree(tree[0])
+    	st += ' ' +tree.label()+ ' '
+    	for subtree in tree[1:]:
+    		st += traverse_tree(subtree) + ' '
+
+    return st.strip()
+
+def read_no_leaf(strng): return ""
